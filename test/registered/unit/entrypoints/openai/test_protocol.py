@@ -15,6 +15,7 @@
 
 import json
 import unittest
+from copy import deepcopy
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
@@ -75,6 +76,36 @@ class TestCompletionRequest(unittest.TestCase):
 
 class TestChatCompletionRequest(unittest.TestCase):
     """Test ChatCompletionRequest protocol model"""
+
+    def test_reused_response_format_preserves_caller_schema(self):
+        """Normalizing a legacy schema must leave reusable caller input intact."""
+        expected_schema = {
+            "title": "Note",
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+        }
+        for strict in (None, False, True):
+            with self.subTest(strict=strict):
+                schema = deepcopy(expected_schema)
+                if strict is not None:
+                    schema["properties"]["strict"] = {
+                        "type": "boolean",
+                        "default": strict,
+                    }
+                response_format = {"type": "json_schema", "schema": schema}
+                original = deepcopy(response_format)
+
+                for _ in range(2):
+                    request = ChatCompletionRequest(
+                        model="test-model",
+                        messages=[{"role": "user", "content": "Hello"}],
+                        response_format=response_format,
+                    )
+                    self.assertEqual(response_format, original)
+                    self.assertEqual(
+                        request.response_format.json_schema.schema_, expected_schema
+                    )
+                    self.assertIs(request.response_format.json_schema.strict, strict)
 
     def test_full_assistant_ebnf_preserves_explicit_output_constraints(self):
         constraint = ("full_assistant_ebnf", 'root ::= "generated"')
